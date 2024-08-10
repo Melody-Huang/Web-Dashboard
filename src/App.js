@@ -18,34 +18,42 @@ const cryptocurrencies = [
   { name: 'Avalanche', symbol: 'AVAX', repo: 'ava-labs/avalanchego' },
 ];
 
-// Navbar Component
+const Logo = () => (
+  <svg className="w-8 h-8 mr-2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
 const Navbar = () => (
-  <nav className="bg-gray-900 text-white shadow-lg">
+  <nav className="bg-gradient-to-r from-blue-600 to-blue-800 text-white shadow-lg">
     <div className="max-w-7xl mx-auto px-4">
-      <div className="flex justify-between items-center py-4">
-        <div className="text-center flex-grow">
-          <span className="font-bold text-xl">CryptoGitHub Commits Ranking</span>
-        </div>
+      <div className="flex justify-between items-center py-6">
+        <Link to="/" className="flex items-center">
+          <Logo />
+          <span className="font-bold text-2xl">CryptoGitHub Insights</span>
+        </Link>
         <div className="flex space-x-4">
-          <Link to="/" className="hover:text-blue-400 transition-colors">Home</Link>
+          <Link to="/" className="hover:text-blue-200 transition-colors font-medium">Home</Link>
+          <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="hover:text-blue-200 transition-colors font-medium">GitHub</a>
         </div>
       </div>
     </div>
   </nav>
 );
 
-// LoadingSpinner Component
 const LoadingSpinner = () => (
   <div className="flex justify-center items-center h-64">
-    <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-blue-500"></div>
+    <div className="animate-spin rounded-full h-32 w-32 border-t-4 border-b-4 border-blue-500"></div>
   </div>
 );
 
 const CryptoDashboard = ({ cryptoData }) => (
-  <div className="grid grid-cols-1 gap-6">
-    <div className="bg-white shadow-md rounded-lg overflow-hidden">
-      <div className="px-6 py-4 bg-gray-100 border-b border-gray-200">
-        <h2 className="font-semibold text-xl text-gray-800">Top 10 Cryptocurrencies Ranked by GitHub Commits</h2>
+  <div className="grid grid-cols-1 gap-8">
+    <div className="bg-white shadow-lg rounded-lg overflow-hidden">
+      <div className="px-6 py-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+        <h2 className="font-semibold text-xl text-center text-gray-800">Top 10 Cryptocurrencies Ranked by GitHub Commits</h2>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
@@ -60,7 +68,7 @@ const CryptoDashboard = ({ cryptoData }) => (
           <tbody className="bg-white divide-y divide-gray-200">
             {cryptoData.map((crypto, index) => (
               <tr key={crypto.symbol} className="hover:bg-gray-50 transition-colors">
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                   {index + 1}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
@@ -80,9 +88,9 @@ const CryptoDashboard = ({ cryptoData }) => (
         </table>
       </div>
     </div>
-    <div className="bg-white shadow-md rounded-lg overflow-hidden">
-      <div className="px-6 py-4 bg-gray-100 border-b border-gray-200">
-        <h2 className="font-semibold text-xl text-gray-800">Commit Activity Overview</h2>
+    <div className="bg-white shadow-lg rounded-lg overflow-hidden">
+      <div className="px-6 py-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+        <h2 className="font-semibold text-xl text-center text-gray-800">Commit Activity Overview</h2>
       </div>
       <div className="p-6">
         <ResponsiveContainer width="100%" height={400}>
@@ -142,14 +150,17 @@ const HomePage = () => {
   }
 
   if (error) {
-    return <div className="text-red-500 text-center">{error}</div>;
+    return <div className="text-red-500 text-center font-medium text-lg">{error}</div>;
   }
 
   return (
     <div className="space-y-8">
-      <div className="bg-white shadow-md rounded-lg p-6">
-        <h1 className="text-3xl font-bold text-gray-800 mb-2">CryptoGitHub Commits Ranking</h1>
-        <p className="text-gray-600">Explore and compare commit activity of top 10 cryptocurrencies on GitHub</p>
+      <div className="bg-white shadow-lg rounded-lg p-8">
+        <div className="flex justify-center items-center mb-4">
+          <Logo />
+          <h1 className="text-4xl font-bold text-gray-800 ml-2">CryptoGitHub Insights</h1>
+        </div>
+        <p className="text-gray-600 text-center text-lg">Explore and compare commit activity of top 10 cryptocurrencies on GitHub</p>
       </div>
       <CryptoDashboard cryptoData={cryptoData} />
     </div>
@@ -208,28 +219,31 @@ const CryptoDetailPage = () => {
   }
 
   if (error) {
-    return <div className="text-red-500 text-center">{error}</div>;
+    return <div className="text-red-500 text-center font-medium text-lg">{error}</div>;
   }
 
   if (!cryptoData) {
-    return <div className="text-red-500 text-center">Cryptocurrency not found</div>;
+    return <div className="text-red-500 text-center font-medium text-lg">Cryptocurrency not found</div>;
   }
 
   return (
-    <div className="space-y-6">
-      <div className="bg-white shadow-md rounded-lg p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h1 className="text-3xl font-bold text-gray-800">
-            {cryptoData.name} ({cryptoData.symbol})
-          </h1>
-          <Link to="/" className="text-blue-600 hover:text-blue-800 transition-colors">
+    <div className="space-y-8">
+      <div className="bg-white shadow-lg rounded-lg p-8">
+        <div className="flex flex-col items-center mb-4">
+          <div className="flex items-center mb-2">
+            <Logo />
+            <h1 className="text-3xl font-bold text-gray-800 ml-2">
+              {cryptoData.name} ({cryptoData.symbol})
+            </h1>
+          </div>
+          <Link to="/" className="text-blue-600 hover:text-blue-800 transition-colors font-medium">
             &larr; Back to Ranking
           </Link>
         </div>
       </div>
 
-      <div className="bg-white shadow-md rounded-lg p-6">
-        <h2 className="text-xl font-semibold text-gray-800 mb-4">Commit Activity</h2>
+      <div className="bg-white shadow-lg rounded-lg p-8">
+        <h2 className="text-2xl font-semibold text-gray-800 mb-6 text-center">Commit Activity</h2>
         <ResponsiveContainer width="100%" height={400}>
           <BarChart data={cryptoData.commitData}>
             <CartesianGrid strokeDasharray="3 3" />
@@ -241,8 +255,8 @@ const CryptoDetailPage = () => {
         </ResponsiveContainer>
       </div>
 
-      <div className="bg-white shadow-md rounded-lg p-6">
-        <h2 className="text-xl font-semibold text-gray-800 mb-4">Commit Details</h2>
+      <div className="bg-white shadow-lg rounded-lg p-8">
+        <h2 className="text-2xl font-semibold text-gray-800 mb-6 text-center">Commit Details</h2>
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
@@ -273,7 +287,7 @@ function App() {
     <Router>
       <div className="min-h-screen bg-gray-100">
         <Navbar />
-        <main className="container mx-auto px-4 py-8 max-w-7xl">
+        <main className="container mx-auto px-4 py-8 max-w-6xl">
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/crypto/:symbol" element={<CryptoDetailPage />} />
