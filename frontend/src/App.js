@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useParams } from 'react-router-dom';
-import { format, isValid, subMonths, parseISO } from 'date-fns';
+import { format, isValid, subMonths, parseISO, isBefore, isAfter } from 'date-fns';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import api from './api';
+
 
 const Navbar = () => (
   <nav className="bg-gradient-to-r from-blue-600 to-blue-800 text-white shadow-lg">
@@ -178,23 +179,29 @@ const CryptoDetailPage = () => {
       try {
         const response = await api.get(`/api/crypto-details/${symbol}`);
 
-        // Ensure commitData exists and is an array
-        const commitData = Array.isArray(response.data.commitData) ? response.data.commitData : [];
+        if (!response.data || !response.data.commitData) {
+          throw new Error('Invalid data structure received from API');
+        }
 
+        const commitData = Array.isArray(response.data.commitData) ? response.data.commitData : [];
         const processedData = processCommitData(commitData);
         setCryptoData({ ...response.data, processedCommitData: processedData });
         setLoading(false);
       } catch (error) {
         console.error('Error fetching data:', error);
-        setError('Failed to fetch cryptocurrency details. Please try again later.');
+        setError(`Failed to fetch cryptocurrency details: ${error.message}`);
         setLoading(false);
       }
     };
+
     fetchData();
   }, [symbol]);
 
   const processCommitData = (commitData) => {
-    const dailyCommits = {};
+    const endDate = new Date('2024-08-31');
+    const startDate = subMonths(endDate, 12);
+
+    const monthlyCommits = {};
 
     commitData.forEach(commit => {
       if (!commit || typeof commit.date === 'undefined') {
@@ -202,29 +209,42 @@ const CryptoDetailPage = () => {
         return;
       }
 
-      let date;
       try {
-        date = typeof commit.date === 'string' ? parseISO(commit.date) : new Date(commit.date);
-        if (!isValid(date)) {
-          console.warn(`Invalid date encountered: ${commit.date}`);
+        const date = parseISO(commit.date);
+        if (!isValid(date) || isBefore(date, startDate) || isAfter(date, endDate)) {
           return;
         }
-        const dateStr = format(date, 'yyyy-MM-dd');
-        dailyCommits[dateStr] = (dailyCommits[dateStr] || 0) + 1;
+        const monthKey = format(date, 'yyyy-MM');
+        monthlyCommits[monthKey] = (monthlyCommits[monthKey] || 0) + 1;
       } catch (error) {
         console.warn(`Error processing date: ${commit.date}`, error);
       }
     });
 
-    const chartData = Object.keys(dailyCommits).map(date => ({
-      date,
-      commits: dailyCommits[date]
+    // Fill in missing months with zero commits
+    let currentDate = startDate;
+    while (isBefore(currentDate, endDate)) {
+      const monthKey = format(currentDate, 'yyyy-MM');
+      if (!monthlyCommits[monthKey]) {
+        monthlyCommits[monthKey] = 0;
+      }
+      currentDate = subMonths(currentDate, -1); // Add one month
+    }
+
+    const chartData = Object.entries(monthlyCommits).map(([monthKey, commits]) => ({
+      month: monthKey, // Keep the month as 'yyyy-MM' format
+      commits
     }));
 
-    return chartData.sort((a, b) => new Date(a.date) - new Date(b.date));
+    return chartData.sort((a, b) => a.month.localeCompare(b.month));
   };
 
-  if (loading) return <div>Loading...</div>;
+  const formatMonth = (monthStr) => {
+    const date = parseISO(monthStr);
+    return isValid(date) ? format(date, 'MMM yyyy') : 'Invalid Date';
+  };
+
+  if (loading) return <LoadingSpinner />;
   if (error) return <div className="text-red-500 text-center font-medium text-lg">{error}</div>;
   if (!cryptoData) return <div className="text-red-500 text-center font-medium text-lg">Cryptocurrency not found</div>;
 
@@ -247,71 +267,43 @@ const CryptoDetailPage = () => {
           <LineChart data={cryptoData.processedCommitData}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis
-              dataKey="date"
-              tickFormatter={(dateStr) => {
-                try {
-                  const date = parseISO(dateStr);
-                  return isValid(date) ? format(date, 'MMM dd') : '';
-                } catch (error) {
-                  console.warn(`Error formatting date: ${dateStr}`, error);
-                  return '';
-                }
-              }}
-              interval={30}
+              dataKey="month"
+              tickFormatter={(value) => format(parseISO(value), 'MMM')}
             />
             <YAxis />
             <Tooltip
-              labelFormatter={(dateStr) => {
-                try {
-                  const date = parseISO(dateStr);
-                  return isValid(date) ? format(date, 'MMM dd, yyyy') : 'Invalid Date';
-                } catch (error) {
-                  console.warn(`Error formatting date: ${dateStr}`, error);
-                  return 'Invalid Date';
-                }
-              }}
+              labelFormatter={(value) => formatMonth(value)}
               formatter={(value) => [value, 'Commits']}
             />
-            <Line type="monotone" dataKey="commits" stroke="#3b82f6" dot={false} />
+            <Line type="monotone" dataKey="commits" stroke="#3b82f6" strokeWidth={2} dot={false} />
           </LineChart>
         </ResponsiveContainer>
       </div>
 
       <div className="bg-white shadow-lg rounded-lg p-8">
         <h2 className="text-2xl font-semibold text-gray-800 mb-6 text-center">Monthly Commit Summary</h2>
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
-              <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Commits</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {Object.entries(
-              cryptoData.processedCommitData.reduce((acc, { date, commits }) => {
-                try {
-                  const parsedDate = parseISO(date);
-                  if (isValid(parsedDate)) {
-                    const month = format(parsedDate, 'MMM yyyy');
-                    acc[month] = (acc[month] || 0) + commits;
-                  }
-                } catch (error) {
-                  console.warn(`Error processing date: ${date}`, error);
-                }
-                return acc;
-              }, {})
-            ).map(([month, totalCommits]) => (
-              <tr key={month} className="hover:bg-gray-50 transition-colors">
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                  {month}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-500">
-                  {totalCommits.toLocaleString()}
-                </td>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
+                <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Commits</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {cryptoData.processedCommitData.map(({ month, commits }) => (
+                <tr key={month} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    {formatMonth(month)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-500">
+                    {commits.toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
