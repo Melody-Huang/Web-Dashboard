@@ -6,7 +6,7 @@ CryptoGitHub Insights is a web application that explores the development activit
 
 - Display top 10 cryptocurrencies based on GitHub commits
 - Show detailed information for each cryptocurrency, including total commits, stars, forks, and open issues
-- Visualize weekly commit activity for the past 12 weeks
+- Visualize weekly commit activity for the past 12 months.
 - Responsive design for various screen sizes
 
 ## Getting Started
