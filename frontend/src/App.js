@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useParams } from 'react-router-dom';
-import { format, isValid, subMonths, parseISO, isBefore, isAfter } from 'date-fns';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { isValid, format } from 'date-fns';
 import api from './api';
 
 
@@ -67,22 +68,6 @@ const CryptoDashboard = ({ cryptoData }) => {
               ))}
             </tbody>
           </table>
-        </div>
-      </div>
-      <div className="bg-white shadow-lg rounded-lg overflow-hidden">
-        <div className="px-6 py-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-          <h2 className="font-semibold text-xl text-center text-gray-800">Commit Activity Overview</h2>
-        </div>
-        <div className="p-6">
-          <ResponsiveContainer width="100%" height={400}>
-            <BarChart data={sortedData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="symbol" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="totalCommits" fill="#3b82f6" />
-            </BarChart>
-          </ResponsiveContainer>
         </div>
       </div>
     </div>
@@ -155,7 +140,7 @@ const HomePage = () => {
           <h1 className="text-4xl font-bold text-gray-800">CryptoGitHub Insights</h1>
         </div>
         <p className="text-gray-600 text-center text-lg">
-          GitHub commit history of 8 cryptocurrencies based on most recent repos
+          GitHub commit history of 8 popular cryptocurrencies based on most recent repos
         </p>
         {lastUpdated && (
           <p className="text-gray-500 text-center text-sm mt-2">
@@ -184,7 +169,9 @@ const CryptoDetailPage = () => {
         }
 
         const commitData = Array.isArray(response.data.commitData) ? response.data.commitData : [];
+        console.log('Raw commit data:', commitData);
         const processedData = processCommitData(commitData);
+        console.log('Processed commit data:', processedData);
         setCryptoData({ ...response.data, processedCommitData: processedData });
         setLoading(false);
       } catch (error) {
@@ -198,10 +185,7 @@ const CryptoDetailPage = () => {
   }, [symbol]);
 
   const processCommitData = (commitData) => {
-    const endDate = new Date('2024-08-31');
-    const startDate = subMonths(endDate, 12);
-
-    const monthlyCommits = {};
+    const monthlyCommits = Array(12).fill(0);
 
     commitData.forEach(commit => {
       if (!commit || typeof commit.date === 'undefined') {
@@ -210,38 +194,49 @@ const CryptoDetailPage = () => {
       }
 
       try {
-        const date = parseISO(commit.date);
-        if (!isValid(date) || isBefore(date, startDate) || isAfter(date, endDate)) {
+        const date = new Date(commit.date);
+        if (isNaN(date.getTime())) {
+          console.warn(`Invalid date encountered: ${commit.date}`);
           return;
         }
-        const monthKey = format(date, 'yyyy-MM');
-        monthlyCommits[monthKey] = (monthlyCommits[monthKey] || 0) + 1;
+        const monthIndex = date.getMonth();
+        monthlyCommits[monthIndex]++;
       } catch (error) {
         console.warn(`Error processing date: ${commit.date}`, error);
       }
     });
 
-    // Fill in missing months with zero commits
-    let currentDate = startDate;
-    while (isBefore(currentDate, endDate)) {
-      const monthKey = format(currentDate, 'yyyy-MM');
-      if (!monthlyCommits[monthKey]) {
-        monthlyCommits[monthKey] = 0;
-      }
-      currentDate = subMonths(currentDate, -1); // Add one month
-    }
-
-    const chartData = Object.entries(monthlyCommits).map(([monthKey, commits]) => ({
-      month: monthKey, // Keep the month as 'yyyy-MM' format
-      commits
+    return monthlyCommits.map((commits, index) => ({
+      month: index,
+      commits: commits
     }));
-
-    return chartData.sort((a, b) => a.month.localeCompare(b.month));
   };
 
-  const formatMonth = (monthStr) => {
-    const date = parseISO(monthStr);
-    return isValid(date) ? format(date, 'MMM yyyy') : 'Invalid Date';
+  const monthNames = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+
+  const CustomXAxisTick = ({ x, y, payload }) => {
+    return (
+      <g transform={`translate(${x},${y})`}>
+        <text x={0} y={0} dy={16} textAnchor="middle" fill="#666">
+          {monthNames[payload.value]}
+        </text>
+      </g>
+    );
+  };
+
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-white p-2 border border-gray-300 rounded shadow">
+          <p className="font-bold">{monthNames[label]}</p>
+          <p>Commits: {payload[0].value}</p>
+        </div>
+      );
+    }
+    return null;
   };
 
   if (loading) return <LoadingSpinner />;
@@ -268,13 +263,13 @@ const CryptoDetailPage = () => {
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis
               dataKey="month"
-              tickFormatter={(value) => format(parseISO(value), 'MMM')}
+              tick={<CustomXAxisTick />}
+              type="number"
+              domain={[0, 11]}
+              tickCount={12}
             />
             <YAxis />
-            <Tooltip
-              labelFormatter={(value) => formatMonth(value)}
-              formatter={(value) => [value, 'Commits']}
-            />
+            <Tooltip content={<CustomTooltip />} />
             <Line type="monotone" dataKey="commits" stroke="#3b82f6" strokeWidth={2} dot={false} />
           </LineChart>
         </ResponsiveContainer>
@@ -294,7 +289,7 @@ const CryptoDetailPage = () => {
               {cryptoData.processedCommitData.map(({ month, commits }) => (
                 <tr key={month} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {formatMonth(month)}
+                    {monthNames[month]}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-500">
                     {commits.toLocaleString()}
