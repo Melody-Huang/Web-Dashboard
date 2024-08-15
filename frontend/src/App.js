@@ -1,23 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useParams } from 'react-router-dom';
-import { format, isValid } from 'date-fns';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { format, isValid, subMonths, parseISO } from 'date-fns';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import api from './api';
-
-const Logo = () => (
-  <svg className="w-8 h-8 mr-2" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-    <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-    <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-  </svg>
-);
 
 const Navbar = () => (
   <nav className="bg-gradient-to-r from-blue-600 to-blue-800 text-white shadow-lg">
     <div className="max-w-7xl mx-auto px-4">
       <div className="flex justify-between items-center py-6">
         <Link to="/" className="flex items-center">
-          <Logo />
           <span className="font-bold text-2xl">CryptoGitHub Insights</span>
         </Link>
         <div className="flex space-x-4">
@@ -36,11 +27,10 @@ const LoadingSpinner = () => (
 );
 
 const CryptoDashboard = ({ cryptoData }) => {
-  if (!cryptoData || !Array.isArray(cryptoData) || cryptoData.length === 0) {
-    return <div className="text-center text-gray-600">No data available</div>;
+  if (!cryptoData || cryptoData.length === 0) {
+    return <div>No data available</div>;
   }
 
-  // Sort the data by total commits in descending order
   const sortedData = [...cryptoData].sort((a, b) => b.totalCommits - a.totalCommits);
 
   return (
@@ -62,17 +52,13 @@ const CryptoDashboard = ({ cryptoData }) => {
             <tbody className="bg-white divide-y divide-gray-200">
               {sortedData.map((crypto, index) => (
                 <tr key={crypto.symbol} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {index + 1}
-                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{index + 1}</td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <Link to={`/crypto/${crypto.symbol}`} className="text-sm font-medium text-blue-600 hover:text-blue-900">
                       {crypto.name}
                     </Link>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {crypto.symbol}
-                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{crypto.symbol}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     {crypto.totalCommits ? crypto.totalCommits.toLocaleString() : 'N/A'}
                   </td>
@@ -102,7 +88,6 @@ const CryptoDashboard = ({ cryptoData }) => {
   );
 };
 
-
 const HomePage = () => {
   const [cryptoData, setCryptoData] = useState([]);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -113,11 +98,8 @@ const HomePage = () => {
     const fetchData = async () => {
       try {
         const response = await api.get('/api/crypto-commits');
-        const data = Array.isArray(response.data) ? response.data : [];
-        // Ensure we're setting the correct data structure
-        setCryptoData(response.data || []);
+        setCryptoData(Array.isArray(response.data) ? response.data : []);
 
-        // Handle lastUpdated separately if it exists in the response
         if (response.data && response.data.lastUpdated) {
           const parsedDate = new Date(response.data.lastUpdated);
           setLastUpdated(isValid(parsedDate) ? parsedDate : null);
@@ -169,11 +151,10 @@ const HomePage = () => {
     <div className="space-y-8">
       <div className="bg-white shadow-lg rounded-lg p-8">
         <div className="flex justify-center items-center mb-4">
-          <Logo />
-          <h1 className="text-4xl font-bold text-gray-800 ml-2">CryptoGitHub Insights</h1>
+          <h1 className="text-4xl font-bold text-gray-800">CryptoGitHub Insights</h1>
         </div>
         <p className="text-gray-600 text-center text-lg">
-          GitHub commit history of 8 popular cryptocurrencies based on most recent repos
+          GitHub commit history of 8 cryptocurrencies based on most recent repos
         </p>
         {lastUpdated && (
           <p className="text-gray-500 text-center text-sm mt-2">
@@ -186,7 +167,6 @@ const HomePage = () => {
   );
 };
 
-
 const CryptoDetailPage = () => {
   const { symbol } = useParams();
   const [cryptoData, setCryptoData] = useState(null);
@@ -197,7 +177,12 @@ const CryptoDetailPage = () => {
     const fetchData = async () => {
       try {
         const response = await api.get(`/api/crypto-details/${symbol}`);
-        setCryptoData(response.data);
+
+        // Ensure commitData exists and is an array
+        const commitData = Array.isArray(response.data.commitData) ? response.data.commitData : [];
+
+        const processedData = processCommitData(commitData);
+        setCryptoData({ ...response.data, processedCommitData: processedData });
         setLoading(false);
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -208,28 +193,48 @@ const CryptoDetailPage = () => {
     fetchData();
   }, [symbol]);
 
-  if (loading) {
-    return <LoadingSpinner />;
-  }
+  const processCommitData = (commitData) => {
+    const dailyCommits = {};
 
-  if (error) {
-    return <div className="text-red-500 text-center font-medium text-lg">{error}</div>;
-  }
+    commitData.forEach(commit => {
+      if (!commit || typeof commit.date === 'undefined') {
+        console.warn('Invalid commit data encountered:', commit);
+        return;
+      }
 
-  if (!cryptoData) {
-    return <div className="text-red-500 text-center font-medium text-lg">Cryptocurrency not found</div>;
-  }
+      let date;
+      try {
+        date = typeof commit.date === 'string' ? parseISO(commit.date) : new Date(commit.date);
+        if (!isValid(date)) {
+          console.warn(`Invalid date encountered: ${commit.date}`);
+          return;
+        }
+        const dateStr = format(date, 'yyyy-MM-dd');
+        dailyCommits[dateStr] = (dailyCommits[dateStr] || 0) + 1;
+      } catch (error) {
+        console.warn(`Error processing date: ${commit.date}`, error);
+      }
+    });
+
+    const chartData = Object.keys(dailyCommits).map(date => ({
+      date,
+      commits: dailyCommits[date]
+    }));
+
+    return chartData.sort((a, b) => new Date(a.date) - new Date(b.date));
+  };
+
+  if (loading) return <div>Loading...</div>;
+  if (error) return <div className="text-red-500 text-center font-medium text-lg">{error}</div>;
+  if (!cryptoData) return <div className="text-red-500 text-center font-medium text-lg">Cryptocurrency not found</div>;
 
   return (
     <div className="space-y-8">
       <div className="bg-white shadow-lg rounded-lg p-8">
         <div className="flex flex-col items-center mb-4">
-          <div className="flex items-center mb-2">
-            <Logo />
-            <h1 className="text-3xl font-bold text-gray-800 ml-2">
-              {cryptoData.name} ({cryptoData.symbol})
-            </h1>
-          </div>
+          <h1 className="text-3xl font-bold text-gray-800 mb-2">
+            {cryptoData.name} ({cryptoData.symbol})
+          </h1>
           <Link to="/" className="text-blue-600 hover:text-blue-800 transition-colors font-medium">
             &larr; Back to Ranking
           </Link>
@@ -237,35 +242,71 @@ const CryptoDetailPage = () => {
       </div>
 
       <div className="bg-white shadow-lg rounded-lg p-8">
-        <h2 className="text-2xl font-semibold text-gray-800 mb-6 text-center">Commit Activity</h2>
+        <h2 className="text-2xl font-semibold text-gray-800 mb-6 text-center">Commit Activity (Last 12 Months)</h2>
         <ResponsiveContainer width="100%" height={400}>
-          <BarChart data={cryptoData.commitData}>
+          <LineChart data={cryptoData.processedCommitData}>
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="period" />
+            <XAxis
+              dataKey="date"
+              tickFormatter={(dateStr) => {
+                try {
+                  const date = parseISO(dateStr);
+                  return isValid(date) ? format(date, 'MMM dd') : '';
+                } catch (error) {
+                  console.warn(`Error formatting date: ${dateStr}`, error);
+                  return '';
+                }
+              }}
+              interval={30}
+            />
             <YAxis />
-            <Tooltip />
-            <Bar dataKey="commits" fill="#3b82f6" />
-          </BarChart>
+            <Tooltip
+              labelFormatter={(dateStr) => {
+                try {
+                  const date = parseISO(dateStr);
+                  return isValid(date) ? format(date, 'MMM dd, yyyy') : 'Invalid Date';
+                } catch (error) {
+                  console.warn(`Error formatting date: ${dateStr}`, error);
+                  return 'Invalid Date';
+                }
+              }}
+              formatter={(value) => [value, 'Commits']}
+            />
+            <Line type="monotone" dataKey="commits" stroke="#3b82f6" dot={false} />
+          </LineChart>
         </ResponsiveContainer>
       </div>
 
       <div className="bg-white shadow-lg rounded-lg p-8">
-        <h2 className="text-2xl font-semibold text-gray-800 mb-6 text-center">Commit Details</h2>
+        <h2 className="text-2xl font-semibold text-gray-800 mb-6 text-center">Monthly Commit Summary</h2>
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time Period</th>
-              <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Commits</th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Month</th>
+              <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Total Commits</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {cryptoData.commitData.map((data) => (
-              <tr key={data.period} className="hover:bg-gray-50 transition-colors">
+            {Object.entries(
+              cryptoData.processedCommitData.reduce((acc, { date, commits }) => {
+                try {
+                  const parsedDate = parseISO(date);
+                  if (isValid(parsedDate)) {
+                    const month = format(parsedDate, 'MMM yyyy');
+                    acc[month] = (acc[month] || 0) + commits;
+                  }
+                } catch (error) {
+                  console.warn(`Error processing date: ${date}`, error);
+                }
+                return acc;
+              }, {})
+            ).map(([month, totalCommits]) => (
+              <tr key={month} className="hover:bg-gray-50 transition-colors">
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                  {data.period}
+                  {month}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-500">
-                  {data.commits ? data.commits.toLocaleString() : 'N/A'}
+                  {totalCommits.toLocaleString()}
                 </td>
               </tr>
             ))}
@@ -275,6 +316,7 @@ const CryptoDetailPage = () => {
     </div>
   );
 };
+
 
 function App() {
   return (

@@ -92,41 +92,28 @@ app.get('/api/crypto-commits', async (req, res) => {
 
 app.get('/api/crypto-details/:symbol', async (req, res) => {
   const { symbol } = req.params;
+  const { startDate, endDate } = req.query;
   try {
-    const cachedData = await getAsync(`crypto_details_${symbol}`);
-    if (cachedData) {
-      return res.json(JSON.parse(cachedData));
-    }
-
     const crypto = cryptocurrencies.find(c => c.symbol === symbol);
     if (!crypto) {
       return res.status(404).json({ error: 'Cryptocurrency not found' });
     }
 
-    const periods = [
-      { name: '1 Month', days: 30 },
-      { name: '6 Months', days: 180 },
-      { name: '1 Year', days: 365 }
-    ];
+    const response = await axios.get(`https://api.github.com/repos/${crypto.repo}/commits`, {
+      params: {
+        since: startDate,
+        until: endDate,
+        per_page: 100 // Adjust as needed
+      },
+      headers: { Authorization: `token ${GITHUB_TOKEN}` }
+    });
 
-    const commitData = await Promise.all(periods.map(async (period) => {
-      const since = new Date(Date.now() - period.days * 24 * 60 * 60 * 1000).toISOString();
-      const response = await axios.get(`https://api.github.com/repos/${crypto.repo}/commits`, {
-        params: { since, per_page: 1 },
-        headers: { Authorization: `token ${GITHUB_TOKEN}` }
-      });
-      const linkHeader = response.headers['link'];
-      const commits = linkHeader
-        ? parseInt(linkHeader.match(/page=(\d+)>; rel="last"/)[1])
-        : response.data.length;
-      return { period: period.name, commits };
+    const commitData = response.data.map(commit => ({
+      date: commit.commit.author.date,
+      message: commit.commit.message
     }));
 
-    const result = { ...crypto, commitData };
-
-    await setexAsync(`crypto_details_${symbol}`, 3600, JSON.stringify(result)); // Cache for 1 hour
-
-    res.json(result);
+    res.json({ ...crypto, commitData });
   } catch (error) {
     console.error('Error fetching data:', error);
     res.status(500).json({ error: 'Failed to fetch cryptocurrency details' });
