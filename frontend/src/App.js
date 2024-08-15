@@ -36,8 +36,8 @@ const LoadingSpinner = () => (
 );
 
 const CryptoDashboard = ({ cryptoData }) => {
-  if (!cryptoData || cryptoData.length === 0) {
-    return <div>No data available</div>;
+  if (!cryptoData || !Array.isArray(cryptoData) || cryptoData.length === 0) {
+    return <div className="text-center text-gray-600">No data available</div>;
   }
 
   // Sort the data by total commits in descending order
@@ -113,6 +113,7 @@ const HomePage = () => {
     const fetchData = async () => {
       try {
         const response = await api.get('/api/crypto-commits');
+        const data = Array.isArray(response.data) ? response.data : [];
         // Ensure we're setting the correct data structure
         setCryptoData(response.data || []);
 
@@ -172,7 +173,7 @@ const HomePage = () => {
           <h1 className="text-4xl font-bold text-gray-800 ml-2">CryptoGitHub Insights</h1>
         </div>
         <p className="text-gray-600 text-center text-lg">
-          GitHub commit history of 8 cryptocurrencies based on most recent repos
+          GitHub commit history of 8 popular cryptocurrencies based on most recent repos
         </p>
         {lastUpdated && (
           <p className="text-gray-500 text-center text-sm mt-2">
