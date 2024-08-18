@@ -31,6 +31,10 @@ const cryptocurrencies = [
 ];
 
 app.get('/api/crypto-details/:symbol', async (req, res) => {
+  const { startDate, endDate } = req.query;
+  if (!startDate || !endDate) {
+    return res.status(400).json({ error: 'startDate and endDate are required' });
+  }
   const { symbol } = req.params;
   try {
     const crypto = cryptocurrencies.find(c => c.symbol === symbol);
