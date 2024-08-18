@@ -2,7 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useParams } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { isValid, format } from 'date-fns';
+import { isValid, format, subYears } from 'date-fns';
+import axios from 'axios';
 import api from './api';
 
 
@@ -80,27 +81,36 @@ const HomePage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const response = await api.get('/api/crypto-commits');
-        setCryptoData(Array.isArray(response.data) ? response.data : []);
+  const endDate = new Date();
+  const startDate = subYears(endDate, 1);
 
-        if (response.data && response.data.lastUpdated) {
-          const parsedDate = new Date(response.data.lastUpdated);
-          setLastUpdated(isValid(parsedDate) ? parsedDate : null);
+  const fetchData = async () => {
+    try {
+      const response = await api.get('/api/crypto-commits', {
+        params: {
+          startDate: format(startDate, 'yyyy-MM-dd'),
+          endDate: format(endDate, 'yyyy-MM-dd'),
+          timestamp: new Date().getTime()
         }
-
-        setLoading(false);
-      } catch (error) {
-        console.error('Error fetching data:', error);
-        setError(`Failed to fetch cryptocurrency data. Please try again later. Error: ${error.message}`);
-        setLoading(false);
+      });
+      console.log('Received data from server:', response.data);
+      setCryptoData(Array.isArray(response.data) ? response.data : []);
+      if (response.data && response.data.lastUpdated) {
+        const parsedDate = new Date(response.data.lastUpdated);
+        setLastUpdated(isValid(parsedDate) ? parsedDate : null);
       }
-    };
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      setError(`Failed to fetch cryptocurrency data. Please try again later. Error: ${error.message}`);
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchData();
   }, []);
+
 
   const formatDate = (date) => {
     if (!date || !isValid(date)) {
@@ -140,7 +150,7 @@ const HomePage = () => {
           <h1 className="text-4xl font-bold text-gray-800">CryptoGitHub Insights</h1>
         </div>
         <p className="text-gray-600 text-center text-lg">
-          GitHub commit history of 8 popular cryptocurrencies based on most recent repos
+          GitHub commit history of 10 popular cryptocurrencies based on most recent repos
         </p>
         {lastUpdated && (
           <p className="text-gray-500 text-center text-sm mt-2">
@@ -162,16 +172,19 @@ const CryptoDetailPage = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const response = await api.get(`/api/crypto-details/${symbol}`);
+        const endDate = new Date();
+        const startDate = subYears(endDate, 1);
+        const response = await api.get(`/api/crypto-details/${symbol}`, {
+          params: {
+            startDate: format(startDate, "yyyy-MM-dd'T'HH:mm:ss.SSSxxx"),
+            endDate: format(endDate, "yyyy-MM-dd'T'HH:mm:ss.SSSxxx")
+          }
+        });
 
-        if (!response.data || !response.data.commitData) {
+        if (!response.data || !response.data.commits) {
           throw new Error('Invalid data structure received from API');
         }
-
-        const commitData = Array.isArray(response.data.commitData) ? response.data.commitData : [];
-        console.log('Raw commit data:', commitData);
-        const processedData = processCommitData(commitData);
-        console.log('Processed commit data:', processedData);
+        const processedData = processCommitData(response.data.commits);
         setCryptoData({ ...response.data, processedCommitData: processedData });
         setLoading(false);
       } catch (error) {
@@ -185,24 +198,15 @@ const CryptoDetailPage = () => {
   }, [symbol]);
 
   const processCommitData = (commitData) => {
+    const endDate = new Date();
+    const startDate = subYears(endDate, 1);
     const monthlyCommits = Array(12).fill(0);
 
     commitData.forEach(commit => {
-      if (!commit || typeof commit.date === 'undefined') {
-        console.warn('Invalid commit data encountered:', commit);
-        return;
-      }
-
-      try {
-        const date = new Date(commit.date);
-        if (isNaN(date.getTime())) {
-          console.warn(`Invalid date encountered: ${commit.date}`);
-          return;
-        }
-        const monthIndex = date.getMonth();
+      const commitDate = new Date(commit.commit.author.date);
+      if (commitDate >= startDate && commitDate <= endDate) {
+        const monthIndex = (commitDate.getMonth() - startDate.getMonth() + 12) % 12;
         monthlyCommits[monthIndex]++;
-      } catch (error) {
-        console.warn(`Error processing date: ${commit.date}`, error);
       }
     });
 
@@ -213,15 +217,16 @@ const CryptoDetailPage = () => {
   };
 
   const monthNames = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan',
+    'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul'
   ];
 
   const CustomXAxisTick = ({ x, y, payload }) => {
+    const year = payload.value < 5 ? '2023' : '2024';
     return (
       <g transform={`translate(${x},${y})`}>
-        <text x={0} y={0} dy={16} textAnchor="middle" fill="#666">
-          {monthNames[payload.value]}
+        <text x={0} y={0} dy={16} textAnchor="middle" fill="#666" fontSize={10}>
+          {`${monthNames[payload.value]} ${year}`}
         </text>
       </g>
     );
@@ -229,9 +234,10 @@ const CryptoDetailPage = () => {
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
+      const year = label < 5 ? '2023' : '2024';
       return (
         <div className="bg-white p-2 border border-gray-300 rounded shadow">
-          <p className="font-bold">{monthNames[label]}</p>
+          <p className="font-bold">{`${monthNames[label]} ${year}`}</p>
           <p>Commits: {payload[0].value}</p>
         </div>
       );
@@ -239,7 +245,7 @@ const CryptoDetailPage = () => {
     return null;
   };
 
-  if (loading) return <LoadingSpinner />;
+  if (loading) return <div className="text-center">Loading...</div>;
   if (error) return <div className="text-red-500 text-center font-medium text-lg">{error}</div>;
   if (!cryptoData) return <div className="text-red-500 text-center font-medium text-lg">Cryptocurrency not found</div>;
 
@@ -257,7 +263,7 @@ const CryptoDetailPage = () => {
       </div>
 
       <div className="bg-white shadow-lg rounded-lg p-8">
-        <h2 className="text-2xl font-semibold text-gray-800 mb-6 text-center">Commit Activity (Last 12 Months)</h2>
+        <h2 className="text-2xl font-semibold text-gray-800 mb-6 text-center">Commit Activity (Aug 2023 - Jul 2024)</h2>
         <ResponsiveContainer width="100%" height={400}>
           <LineChart data={cryptoData.processedCommitData}>
             <CartesianGrid strokeDasharray="3 3" />
@@ -289,7 +295,7 @@ const CryptoDetailPage = () => {
               {cryptoData.processedCommitData.map(({ month, commits }) => (
                 <tr key={month} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {monthNames[month]}
+                    {`${monthNames[month]} ${month < 5 ? '2023' : '2024'}`}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-500">
                     {commits.toLocaleString()}
@@ -303,7 +309,6 @@ const CryptoDetailPage = () => {
     </div>
   );
 };
-
 
 function App() {
   return (

@@ -1,17 +1,17 @@
 // server.js
 const express = require('express');
 const axios = require('axios');
-const redis = require('redis');
-const { promisify } = require('util');
+// const redis = require('redis');
+// const { promisify } = require('util');
 const cors = require('cors');
 
 require('dotenv').config();
 
 const app = express();
-const client = redis.createClient();
+// const client = redis.createClient();
 
-const getAsync = promisify(client.get).bind(client);
-const setexAsync = promisify(client.setex).bind(client);
+// const getAsync = promisify(client.get).bind(client);
+// const setexAsync = promisify(client.setex).bind(client);
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
@@ -26,24 +26,30 @@ const cryptocurrencies = [
   { name: 'Dogecoin', symbol: 'DOGE', repo: 'dogecoin/dogecoin' },
   { name: 'Cardano', symbol: 'ADA', repo: 'IntersectMBO/cardano-node' },
   { name: 'TRON', symbol: 'TRX', repo: 'tronprotocol/java-tron' },
+  { name: 'Mina', symbol: 'MINA', repo: 'MinaProtocol/mina' },
+  { name: 'SushiSwap', symbol: 'SUSHI', repo: 'sushiswap/sushiswap' },
 ];
 
-app.get('/api/crypto-commits', async (req, res) => {
+app.get('/api/crypto-details/:symbol', async (req, res) => {
+  const { symbol } = req.params;
   try {
-    const cachedData = await getAsync('crypto_commits');
-    if (cachedData) {
-      return res.json(JSON.parse(cachedData));
-      return res.json({
-        data: parsedData,
-        lastUpdated: new Date(parsedData.lastUpdated || Date.now()).toISOString()
-      });
+    const crypto = cryptocurrencies.find(c => c.symbol === symbol);
+    if (!crypto) {
+      return res.status(404).json({ error: 'Cryptocurrency not found' });
     }
 
-    const results = await Promise.all(cryptocurrencies.map(async (crypto) => {
-      console.log(`https://api.github.com/repos/${crypto.repo}/activity`)
+    let allCommits = [];
+    let page = 1;
+    let hasNextPage = true;
 
-      const response = await axios.get(`https://api.github.com/repos/${crypto.repo}/stats/participation`, {
-        params: { per_page: 1 },
+    while (hasNextPage) {
+      const response = await axios.get(`https://api.github.com/repos/${crypto.repo}/commits`, {
+        params: {
+          since: startDate,
+          until: endDate,
+          per_page: 100,
+          page: page
+        },
         headers: {
           'Authorization': `token ${GITHUB_TOKEN}`,
           'Accept': 'application/vnd.github+json',
@@ -51,74 +57,72 @@ app.get('/api/crypto-commits', async (req, res) => {
         }
       });
 
-      console.log("response", response)
-
-      // const linkHeader = response.headers['link'];
-      // const totalCommits = linkHeader
-      //   ? parseInt(linkHeader.match(/page=(\d+)>; rel="last"/)[1])
-      //   : response.data.length;
-      const totalCommits = response.data.all.reduce((sum, weeklyCommits) => sum + weeklyCommits, 0);
-
-      return { ...crypto, totalCommits };
-    }));
-
-    const sortedResults = results.sort((a, b) => b.totalCommits - a.totalCommits);
-    const dataToCache = {
-      data: sortedResults,
-      lastUpdated: new Date().toISOString()
-    };
-
-    await setexAsync('crypto_commits', 3600, JSON.stringify(sortedResults)); // Cache for 1 hour
-
-    res.json(sortedResults);
-  } catch (error) {
-    console.error('Error fetching data:', error);
-    // if (error.response) {
-    //   // The request was made and the server responded with a status code
-    //   // that falls out of the range of 2xx
-      // console.error('Response data:', error.response.data);
-    //   console.error('Response status:', error.response.status);
-    //   console.error('Response headers:', error.response.headers);
-    // } else if (error.request) {
-    //   // The request was made but no response was received
-    //   console.error('No response received:', error.request);
-    // } else {
-    //   // Something happened in setting up the request that triggered an Error
-    //   console.error('Error setting up request:', error.message);
-    // }
-    res.status(500).json({ error: 'Failed to fetch cryptocurrency data', details: error.message, lastUpdated: new Date().toISOString() });
-  }
-});
-
-app.get('/api/crypto-details/:symbol', async (req, res) => {
-  const { symbol } = req.params;
-  const { startDate, endDate } = req.query;
-  try {
-    const crypto = cryptocurrencies.find(c => c.symbol === symbol);
-    if (!crypto) {
-      return res.status(404).json({ error: 'Cryptocurrency not found' });
+      allCommits = allCommits.concat(response.data);
+      hasNextPage = response.data.length === 100;
+      page++;
     }
 
-    const response = await axios.get(`https://api.github.com/repos/${crypto.repo}/commits`, {
-      params: {
-        since: startDate,
-        until: endDate,
-        per_page: 100 // Adjust as needed
-      },
-      headers: { Authorization: `token ${GITHUB_TOKEN}` }
-    });
-
-    const commitData = response.data.map(commit => ({
-      date: commit.commit.author.date,
-      message: commit.commit.message
-    }));
-
-    res.json({ ...crypto, commitData });
+    res.json({ ...crypto, totalCommits: allCommits.length, commits: allCommits });
   } catch (error) {
     console.error('Error fetching data:', error);
     res.status(500).json({ error: 'Failed to fetch cryptocurrency details' });
   }
 });
+
+
+app.get('/api/crypto-commits', async (req, res) => {
+  const { startDate, endDate } = req.query;
+  if (!startDate || !endDate) {
+    return res.status(400).json({ error: 'startDate and endDate are required' });
+  }
+  try {
+    const results = await Promise.all(cryptocurrencies.map(async (crypto) => {
+      try {
+        let allCommits = [];
+        let page = 1;
+        let hasNextPage = true;
+
+        while (hasNextPage) {
+          const response = await axios.get(`https://api.github.com/repos/${crypto.repo}/commits`, {
+            params: {
+              since: startDate,
+              until: endDate,
+              per_page: 100,
+              page: page
+            },
+            headers: {
+              'Authorization': `token ${GITHUB_TOKEN}`,
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+            }
+          });
+
+          allCommits = allCommits.concat(response.data);
+          hasNextPage = response.data.length === 100;
+          page++;
+        }
+
+        return { ...crypto, totalCommits: allCommits.length, commits: allCommits };
+      } catch (error) {
+        console.error(`Error fetching data for ${crypto.name}:`, error.response ? error.response.data : error.message);
+        return { ...crypto, error: error.message };
+      }
+    }));
+
+    const sortedResults = results.sort((a, b) => (b.totalCommits || 0) - (a.totalCommits || 0));
+    res.json(sortedResults);
+  } catch (error) {
+    console.error('Error in /api/crypto-commits:', error);
+    res.status(500).json({ error: 'Failed to fetch cryptocurrency data', details: error.message });
+  }
+});
+
+
+app.use((err, req, res, next) => {
+  console.error('Server error:', err.stack);
+  res.status(500).json({ error: 'Internal Server Error', details: err.message });
+});
+
 
 const PORT = process.env.PORT || 3003;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
