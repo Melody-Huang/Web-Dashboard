@@ -1,19 +1,20 @@
 // server.js
 const express = require('express');
 const axios = require('axios');
-// const redis = require('redis');
-// const { promisify } = require('util');
+const redis = require('redis');
+const { promisify } = require('util');
 const cors = require('cors');
 
 require('dotenv').config();
 
 const app = express();
-// const client = redis.createClient();
+const client = redis.createClient();
 
-// const getAsync = promisify(client.get).bind(client);
-// const setexAsync = promisify(client.setex).bind(client);
+const getAsync = promisify(client.get).bind(client);
+const setexAsync = promisify(client.setex).bind(client);
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+const CACHE_EXPIRATION = 3600;
 
 app.use(cors());
 
@@ -36,6 +37,13 @@ app.get('/api/crypto-details/:symbol', async (req, res) => {
     return res.status(400).json({ error: 'startDate and endDate are required' });
   }
   const { symbol } = req.params;
+  const cacheKey = `crypto-details:${symbol}:${startDate}:${endDate}`;
+
+  const cachedData = await getAsync(cacheKey);
+  if (cachedData) {
+    return res.json(JSON.parse(cachedData));
+  }
+
   try {
     const crypto = cryptocurrencies.find(c => c.symbol === symbol);
     if (!crypto) {
@@ -66,7 +74,11 @@ app.get('/api/crypto-details/:symbol', async (req, res) => {
       page++;
     }
 
-    res.json({ ...crypto, totalCommits: allCommits.length, commits: allCommits });
+    const resultData = { ...crypto, totalCommits: allCommits.length, commits: allCommits };
+
+    await setexAsync(cacheKey, CACHE_EXPIRATION, JSON.stringify(resultData));
+
+    res.json(resultData);
   } catch (error) {
     console.error('Error fetching data:', error);
     res.status(500).json({ error: 'Failed to fetch cryptocurrency details' });
@@ -79,7 +91,16 @@ app.get('/api/crypto-commits', async (req, res) => {
   if (!startDate || !endDate) {
     return res.status(400).json({ error: 'startDate and endDate are required' });
   }
+
+  const cacheKey = `crypto-commits:${startDate}:${endDate}`;
+
   try {
+    // Try to get data from cache
+    const cachedData = await getAsync(cacheKey);
+    if (cachedData) {
+      return res.json(JSON.parse(cachedData));
+    }
+
     const results = await Promise.all(cryptocurrencies.map(async (crypto) => {
       try {
         let allCommits = [];
@@ -114,6 +135,9 @@ app.get('/api/crypto-commits', async (req, res) => {
     }));
 
     const sortedResults = results.sort((a, b) => (b.totalCommits || 0) - (a.totalCommits || 0));
+
+    await setexAsync(cacheKey, CACHE_EXPIRATION, JSON.stringify(sortedResults));
+
     res.json(sortedResults);
   } catch (error) {
     console.error('Error in /api/crypto-commits:', error);
