@@ -1,22 +1,11 @@
-// server.js
-const express = require('express');
-const axios = require('axios');
-const redis = require('redis');
-const { promisify } = require('util');
-const cors = require('cors');
+import { Router } from 'itty-router'
 
-require('dotenv').config();
+// Create a new router
+const router = Router()
 
-const app = express();
-const client = redis.createClient();
-
-const getAsync = promisify(client.get).bind(client);
-const setexAsync = promisify(client.setex).bind(client);
-
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-const CACHE_EXPIRATION = 3600;
-
-app.use(cors());
+// Constants
+const GITHUB_TOKEN = GITHUB_TOKEN // This should be set in your Cloudflare Worker environment variables
+const CACHE_EXPIRATION = 3600
 
 const cryptocurrencies = [
   { name: 'Bitcoin', symbol: 'BTC', repo: 'bitcoin/bitcoin' },
@@ -29,128 +18,129 @@ const cryptocurrencies = [
   { name: 'TRON', symbol: 'TRX', repo: 'tronprotocol/java-tron' },
   { name: 'Mina', symbol: 'MINA', repo: 'MinaProtocol/mina' },
   { name: 'SushiSwap', symbol: 'SUSHI', repo: 'sushiswap/sushiswap' },
-];
+]
 
-app.get('/api/crypto-details/:symbol', async (req, res) => {
-  const { startDate, endDate } = req.query;
-  if (!startDate || !endDate) {
-    return res.status(400).json({ error: 'startDate and endDate are required' });
+// Helper function to fetch commits from GitHub
+async function fetchCommits(repo, startDate, endDate, page = 1) {
+  const url = `https://api.github.com/repos/${repo}/commits?since=${startDate}&until=${endDate}&per_page=100&page=${page}`
+  const response = await fetch(url, {
+    headers: {
+      'Authorization': `token ${GITHUB_TOKEN}`,
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'CloudflareWorker',
+    },
+  })
+  if (!response.ok) {
+    throw new Error(`GitHub API responded with ${response.status}`)
   }
-  const { symbol } = req.params;
-  const cacheKey = `crypto-details:${symbol}:${startDate}:${endDate}`;
+  return response.json()
+}
 
-  const cachedData = await getAsync(cacheKey);
+// Helper function to fetch all commits
+async function fetchAllCommits(repo, startDate, endDate) {
+  let allCommits = []
+  let page = 1
+  let hasNextPage = true
+
+  while (hasNextPage) {
+    const commits = await fetchCommits(repo, startDate, endDate, page)
+    allCommits = allCommits.concat(commits)
+    hasNextPage = commits.length === 100
+    page++
+  }
+
+  return allCommits
+}
+
+// Add a route for fetching crypto details
+router.get('/api/crypto-details/:symbol', async ({ params, query }) => {
+  const { symbol } = params
+  const { startDate, endDate } = query
+  if (!startDate || !endDate) {
+    return new Response(JSON.stringify({ error: 'startDate and endDate are required' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+  }
+
+  const cacheKey = `crypto-details:${symbol}:${startDate}:${endDate}`
+
+  // Try to get data from KV store
+  const cachedData = await CRYPTO_CACHE.get(cacheKey)
   if (cachedData) {
-    return res.json(JSON.parse(cachedData));
+    return new Response(cachedData, { headers: { 'Content-Type': 'application/json' } })
+  }
+
+  const crypto = cryptocurrencies.find(c => c.symbol === symbol)
+  if (!crypto) {
+    return new Response(JSON.stringify({ error: 'Cryptocurrency not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } })
   }
 
   try {
-    const crypto = cryptocurrencies.find(c => c.symbol === symbol);
-    if (!crypto) {
-      return res.status(404).json({ error: 'Cryptocurrency not found' });
-    }
+    const allCommits = await fetchAllCommits(crypto.repo, startDate, endDate)
+    const resultData = { ...crypto, totalCommits: allCommits.length, commits: allCommits }
 
-    let allCommits = [];
-    let page = 1;
-    let hasNextPage = true;
+    // Cache the result in KV store
+    await CRYPTO_CACHE.put(cacheKey, JSON.stringify(resultData), { expirationTtl: CACHE_EXPIRATION })
 
-    while (hasNextPage) {
-      const response = await axios.get(`https://api.github.com/repos/${crypto.repo}/commits`, {
-        params: {
-          since: startDate,
-          until: endDate,
-          per_page: 100,
-          page: page
-        },
-        headers: {
-          'Authorization': `token ${GITHUB_TOKEN}`,
-          'Accept': 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-        }
-      });
-
-      allCommits = allCommits.concat(response.data);
-      hasNextPage = response.data.length === 100;
-      page++;
-    }
-
-    const resultData = { ...crypto, totalCommits: allCommits.length, commits: allCommits };
-
-    await setexAsync(cacheKey, CACHE_EXPIRATION, JSON.stringify(resultData));
-
-    res.json(resultData);
+    return new Response(JSON.stringify(resultData), { headers: { 'Content-Type': 'application/json' } })
   } catch (error) {
-    console.error('Error fetching data:', error);
-    res.status(500).json({ error: 'Failed to fetch cryptocurrency details' });
+    return new Response(JSON.stringify({ error: 'Failed to fetch cryptocurrency details', details: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } })
   }
-});
+})
 
-
-app.get('/api/crypto-commits', async (req, res) => {
-  const { startDate, endDate } = req.query;
+// Add a route for fetching all crypto commits
+router.get('/api/crypto-commits', async ({ query }) => {
+  const { startDate, endDate } = query
   if (!startDate || !endDate) {
-    return res.status(400).json({ error: 'startDate and endDate are required' });
+    return new Response(JSON.stringify({ error: 'startDate and endDate are required' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
   }
 
-  const cacheKey = `crypto-commits:${startDate}:${endDate}`;
+  const cacheKey = `crypto-commits:${startDate}:${endDate}`
+
+  // Try to get data from KV store
+  const cachedData = await CRYPTO_CACHE.get(cacheKey)
+  if (cachedData) {
+    return new Response(cachedData, { headers: { 'Content-Type': 'application/json' } })
+  }
 
   try {
-    // Try to get data from cache
-    const cachedData = await getAsync(cacheKey);
-    if (cachedData) {
-      return res.json(JSON.parse(cachedData));
-    }
-
     const results = await Promise.all(cryptocurrencies.map(async (crypto) => {
       try {
-        let allCommits = [];
-        let page = 1;
-        let hasNextPage = true;
-
-        while (hasNextPage) {
-          const response = await axios.get(`https://api.github.com/repos/${crypto.repo}/commits`, {
-            params: {
-              since: startDate,
-              until: endDate,
-              per_page: 100,
-              page: page
-            },
-            headers: {
-              'Authorization': `token ${GITHUB_TOKEN}`,
-              'Accept': 'application/vnd.github+json',
-              'X-GitHub-Api-Version': '2022-11-28',
-            }
-          });
-
-          allCommits = allCommits.concat(response.data);
-          hasNextPage = response.data.length === 100;
-          page++;
-        }
-
-        return { ...crypto, totalCommits: allCommits.length, commits: allCommits };
+        const allCommits = await fetchAllCommits(crypto.repo, startDate, endDate)
+        return { ...crypto, totalCommits: allCommits.length, commits: allCommits }
       } catch (error) {
-        console.error(`Error fetching data for ${crypto.name}:`, error.response ? error.response.data : error.message);
-        return { ...crypto, error: error.message };
+        console.error(`Error fetching data for ${crypto.name}:`, error.message)
+        return { ...crypto, error: error.message }
       }
-    }));
+    }))
 
-    const sortedResults = results.sort((a, b) => (b.totalCommits || 0) - (a.totalCommits || 0));
+    const sortedResults = results.sort((a, b) => (b.totalCommits || 0) - (a.totalCommits || 0))
 
-    await setexAsync(cacheKey, CACHE_EXPIRATION, JSON.stringify(sortedResults));
+    // Cache the result in KV store
+    await CRYPTO_CACHE.put(cacheKey, JSON.stringify(sortedResults), { expirationTtl: CACHE_EXPIRATION })
 
-    res.json(sortedResults);
+    return new Response(JSON.stringify(sortedResults), { headers: { 'Content-Type': 'application/json' } })
   } catch (error) {
-    console.error('Error in /api/crypto-commits:', error);
-    res.status(500).json({ error: 'Failed to fetch cryptocurrency data', details: error.message });
+    return new Response(JSON.stringify({ error: 'Failed to fetch cryptocurrency data', details: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } })
   }
-});
+})
 
+// Handle CORS preflight requests
+router.options('*', () => new Response(null, {
+  headers: {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  },
+}))
 
-app.use((err, req, res, next) => {
-  console.error('Server error:', err.stack);
-  res.status(500).json({ error: 'Internal Server Error', details: err.message });
-});
+// Attach CORS headers to all responses
+function handleRequest(request) {
+  return router.handle(request).then(response => {
+    response.headers.set('Access-Control-Allow-Origin', '*')
+    return response
+  })
+}
 
-
-const PORT = process.env.PORT || 3003;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+addEventListener('fetch', event => {
+  event.respondWith(handleRequest(event.request))
+})
