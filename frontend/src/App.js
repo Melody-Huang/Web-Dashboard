@@ -76,10 +76,10 @@ const HomePage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const endDate = new Date();
-  const startDate = subYears(endDate, 1);
-
   useEffect(() => {
+    const endDate = new Date();
+    const startDate = subYears(endDate, 1);
+
     const fetchData = async () => {
       try {
         const response = await api.get('/api/crypto-commits', {
@@ -103,7 +103,7 @@ const HomePage = () => {
     };
 
     fetchData();
-  }, [startDate, endDate]);
+  }, []);
 
   const formatDate = (date) => {
     if (!date || !isValid(date)) {
