@@ -21,7 +21,35 @@ const cryptocurrencies = [
     event.respondWith(handleRequest(event.request))
   })
 
-  async function handleRequest(request) {
+
+async function handleRequest(request) {
+    // CORS headers
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*', // Or specify your frontend domain
+      'Access-Control-Allow-Methods': 'GET,HEAD,POST,OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Max-Age': '86400',
+    }
+
+    // Handle CORS preflight requests
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: corsHeaders
+      })
+    }
+
+    // Handle the actual request
+    const response = await handleApiRequest(request)
+
+    // Add CORS headers to the response
+    Object.keys(corsHeaders).forEach(key => {
+      response.headers.set(key, corsHeaders[key])
+    })
+
+    return response
+  }
+
+  async function handleApiRequest(request) {
     const url = new URL(request.url)
     const path = url.pathname
 
