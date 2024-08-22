@@ -79,31 +79,31 @@ const HomePage = () => {
   const endDate = new Date();
   const startDate = subYears(endDate, 1);
 
-  const fetchData = async () => {
-    try {
-      const response = await api.get('/api/crypto-commits', {
-        params: {
-          startDate: format(startDate, 'yyyy-MM-dd'),
-          endDate: format(endDate, 'yyyy-MM-dd'),
-          timestamp: new Date().getTime()
-        }
-      });
-      setCryptoData(Array.isArray(response.data) ? response.data : []);
-      if (response.data && response.data.lastUpdated) {
-        const parsedDate = new Date(response.data.lastUpdated);
-        setLastUpdated(isValid(parsedDate) ? parsedDate : null);
-      }
-      setLoading(false);
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      setError(`Failed to fetch cryptocurrency data. Please try again later. Error: ${error.message}`);
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const response = await api.get('/api/crypto-commits', {
+          params: {
+            startDate: format(startDate, 'yyyy-MM-dd'),
+            endDate: format(endDate, 'yyyy-MM-dd'),
+            timestamp: new Date().getTime()
+          }
+        });
+        setCryptoData(Array.isArray(response.data) ? response.data : []);
+        if (response.data && response.data.lastUpdated) {
+          const parsedDate = new Date(response.data.lastUpdated);
+          setLastUpdated(isValid(parsedDate) ? parsedDate : null);
+        }
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setError(`Failed to fetch cryptocurrency data. Please try again later. Error: ${error.message}`);
+        setLoading(false);
+      }
+    };
+
     fetchData();
-  });
+  }, []);
 
   const formatDate = (date) => {
     if (!date || !isValid(date)) {
