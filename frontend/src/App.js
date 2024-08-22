@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useParams } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { isValid, format, subYears } from 'date-fns';
-import axios from 'axios';
 import api from './api';
 
 const Navbar = () => (
@@ -104,7 +103,7 @@ const HomePage = () => {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  });
 
   const formatDate = (date) => {
     if (!date || !isValid(date)) {
