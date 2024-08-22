@@ -103,7 +103,7 @@ const HomePage = () => {
     };
 
     fetchData();
-  }, []);
+  }, [startDate, endDate]);
 
   const formatDate = (date) => {
     if (!date || !isValid(date)) {
